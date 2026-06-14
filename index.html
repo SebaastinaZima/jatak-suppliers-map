@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Our Suppliers — Interactive Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg:#f7f5f0; --ink:#23211c; --muted:#6f6a60; --line:#e3ddd2;
+    --accent:#3f6e4b; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  #app{display:flex;height:100vh;overflow:hidden}
+  /* Sidebar */
+  #sidebar{width:340px;flex:0 0 340px;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;height:100%}
+  .head{padding:18px 18px 12px;border-bottom:1px solid var(--line)}
+  .head h1{margin:0;font-size:19px;letter-spacing:.2px}
+  .head p{margin:6px 0 0;font-size:12.5px;color:var(--muted);line-height:1.45}
+  .search{padding:10px 18px;border-bottom:1px solid var(--line)}
+  .search input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fbfaf7}
+  .search input:focus{outline:none;border-color:var(--accent)}
+  #list{overflow:auto;flex:1;padding:6px 0}
+  .item{display:flex;gap:11px;align-items:flex-start;padding:10px 18px;cursor:pointer;border-left:3px solid transparent}
+  .item:hover{background:#f3f1ea}
+  .item.active{background:#eef3ee;border-left-color:var(--accent)}
+  .item .ic{flex:0 0 30px;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  .item .ic svg{width:18px;height:18px}
+  .item .tx{min-width:0}
+  .item .nm{font-size:13.5px;font-weight:600;line-height:1.25}
+  .item .mt{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .badge{display:inline-block;font-size:10px;color:#8a5a00;background:#fdf1d8;border:1px solid #f0dcae;border-radius:4px;padding:0 5px;margin-left:4px;vertical-align:middle}
+  /* Map */
+  #map{flex:1;height:100%}
+  /* Legend */
+  .legend{background:var(--card);padding:9px 11px;border-radius:9px;box-shadow:0 1px 6px rgba(0,0,0,.18);font-size:11.5px;line-height:1.5;max-width:165px}
+  .legend b{display:block;margin-bottom:5px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .legend .row{display:flex;align-items:center;gap:7px;margin:2px 0}
+  .legend .sw{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 16px}
+  .legend .sw svg{width:10px;height:10px}
+  /* Marker pin */
+  .pin{position:relative;width:34px;height:34px;transform:translate(-17px,-34px)}
+  .pin .body{position:absolute;left:0;top:0;width:34px;height:34px;background:var(--c);border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 5px rgba(0,0,0,.35);border:2px solid #fff}
+  .pin .gl{position:absolute;left:8px;top:7px;width:18px;height:18px;display:flex;align-items:center;justify-content:center}
+  .pin .gl svg{width:18px;height:18px;fill:#fff}
+  .pin.home{width:46px;height:46px;transform:translate(-23px,-46px)}
+  .pin.home .body{width:46px;height:46px;border:3px solid #f3c969}
+  .pin.home .gl{left:12px;top:10px;width:22px;height:22px}
+  .pin.home .gl svg{width:22px;height:22px}
+  .item.home{background:#1f1d1a}
+  .item.home .nm{color:#fff}
+  .item.home .mt{color:#cdbf9a}
+  .item.home:hover{background:#2a2722}
+  .item.home .ic{box-shadow:0 0 0 2px #f3c969}
+  .leaflet-popup-content{margin:12px 14px;font-size:13px;line-height:1.5}
+  .pop h3{margin:0 0 3px;font-size:14.5px}
+  .pop .p{color:var(--muted);font-size:12px;margin:0 0 9px}
+  .pop a.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px}
+  .pop a.btn:hover{background:#345b3e}
+  .mobile-toggle{display:none}
+  @media(max-width:760px){
+    #app{flex-direction:column}
+    #sidebar{width:100%;flex:0 0 auto;height:auto;max-height:46vh}
+    #map{flex:1}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="head">
+      <h1>Our Suppliers</h1>
+      <p>The farms, foragers and fishers behind <b>JATAK</b> — our kitchen (the dark house pin). Click any pin or list item to open its website.</p>
+    </div>
+    <div class="search"><input id="q" type="text" placeholder="Search supplier or product…" /></div>
+    <div id="list"></div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ---- Focus categories: icon (SVG path) + colour ---- */
+const CAT = {
+  lamb:    {label:"Lamb",            color:"#9c6b3f", svg:'<path d="M7 13c-2 0-3-1.5-3-3 0-1.4 1-2.6 2.3-2.9C6.6 5.3 8.1 4 10 4c1.2 0 2.3.5 3 1.4.5-.3 1.1-.4 1.7-.4 1.8 0 3.3 1.5 3.3 3.3 0 .3 0 .6-.1.8C22 9.5 22.8 10.6 22 12c-.6 1-1.7 1-2.7 1H7z M8 13v4M12 13v5M16 13v4"/>'},
+  game:    {label:"Game / Venison",  color:"#6b4226", svg:'<path d="M12 22V11M12 11c-1 0-3-1-3-3M12 11c1 0 3-1 3-3M8 9C7 8 6 5 7 3c1 1 1.5 2 2 4M16 9c1-1 2-4 1-6-1 1-1.5 2-2 4M9 22h6"/>'},
+  pork:    {label:"Pork",            color:"#c77f8e", svg:'<path d="M4 12c0-2 1.5-3.5 3.5-3.5L9 7c1-1 5-1 6 0l1.5 1.5C18.5 8.5 20 10 20 12c0 1.5-1 2.7-1 4l-1 2h-3l-.5-1.5h-3L11 18H8l-1-2c0-1.3-1-2.5-1-4z M8.5 12h.01M15.5 12h.01"/>'},
+  poultry: {label:"Poultry",         color:"#d99a3a", svg:'<path d="M14 4a2 2 0 1 1-2 2c-3 0-6 2.5-6 6 0 3 2 5 5 5h2c3 0 5-2 5-5 0-2-1-3-1-4M9 17l-2 3M13 17l1 3M11 6.5 9 8"/>'},
+  dairy:   {label:"Dairy / Cheese",  color:"#e0b53f", svg:'<path d="M4 14l9-5 7 3v6H4v-4z M4 14h16M9 14v4M14 15v3M17 16v2"/>'},
+  fish:    {label:"Fish",            color:"#3b7d99", svg:'<path d="M3 12s3-4 8-4 9 4 9 4-4 4-9 4-8-4-8-4z M20 8s2 1 2 4-2 4-2 4M15 12h.01"/>'},
+  oyster:  {label:"Oyster / Shellfish",color:"#5f8c8c", svg:'<path d="M12 4c5 0 8 4 8 8 0 0-3 4-8 4s-8-4-8-4c0-4 3-8 8-8z M12 4v12M8 8c1 2 1 5 0 7M16 8c-1 2-1 5 0 7"/>'},
+  mushroom:{label:"Mushrooms",       color:"#8a6f4a", svg:'<path d="M5 11a7 7 0 0 1 14 0c0 1-1 1.5-7 1.5S5 12 5 11z M10 12.5v5a2 2 0 0 0 4 0v-5"/>'},
+  veg:     {label:"Vegetables",      color:"#4f8a3d", svg:'<path d="M12 8c0-2 2-4 4-4 0 2-1 4-4 4z M12 8c-3 0-6 2-6 6 0 3 2 6 6 6s6-3 6-6c0-4-3-6-6-6z M12 8v3"/>'},
+  fruit:   {label:"Fruit / Orchard", color:"#c0573f", svg:'<path d="M12 8C9 8 6 10 6 14s3 6 6 6 6-2 6-6-3-6-6-6z M12 8c0-2 1-4 3-4M12 8V5"/>'},
+  citrus:  {label:"Citrus",          color:"#e8821e", svg:'<path d="M19 13a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"/><path d="M12 6V4M12 4c1.3 0 2.2-.7 2.7-1.7"/>'},
+  forage:  {label:"Foraging / Herbs",color:"#5a8a5f", svg:'<path d="M12 21V8M12 13c-3 0-5-2-5-5 3 0 5 2 5 5z M12 11c3 0 5-2 5-5-3 0-5 2-5 5z"/>'},
+  meat:    {label:"Mixed Farm / Meat",color:"#a85b4b", svg:'<path d="M16 4a4 4 0 0 1 4 4c0 2-1.5 3-3 3.5L11 18c-1.5 1.5-4 1.5-5.5 0S4 14 5.5 12.5L12 7C12.5 5.5 14 4 16 4z M8 15l1 1"/>'},
+  estate:  {label:"Organic Estate",  color:"#3f6e4b", svg:'<path d="M4 20V10l8-5 8 5v10M9 20v-5h6v5M4 10h16"/>'}
+};
+
+/* ---- Home base (our restaurant) ---- */
+const HOME = {label:"Our kitchen", color:"#1f1d1a",
+  svg:'<path d="M3 11l9-7 9 7"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/>'};
+
+/* ---- Suppliers ---- */
+const SUP = [
+  {n:"Varde Ådal Lam", c:"lamb", town:"Toftnæs, 6800 Varde (West Jutland)", d:"Family-run organic lamb farm by the Wadden Sea", lat:55.585, lng:8.555, url:"https://www.vardeaadallam.dk/"},
+  {n:"Forager Petra", c:"forage", town:"Zealand (location approximate)", d:"Wild food & seasonal foraging", lat:55.55, lng:11.75, url:"https://www.google.com/search?q=Forager+Petra+Denmark", approx:true},
+  {n:"Rømø", c:"oyster", town:"Rømø, Wadden Sea (South Jutland)", d:"Wadden Sea oysters & seafood", lat:55.146, lng:8.527, url:"https://www.google.com/search?q=R%C3%B8m%C3%B8+oysters+Wadden+Sea"},
+  {n:"Limfjord", c:"oyster", town:"Limfjorden (North Jutland)", d:"Wild Limfjord flat oysters & shellfish", lat:56.965, lng:9.255, url:"https://www.google.com/search?q=Limfjorden+%C3%B8sters+oysters"},
+  {n:"Kysøko Gård", c:"fruit", town:"Kyse, 4700 Næstved (Zealand)", d:"Organic orchard — 100+ heritage fruit varieties", lat:55.18, lng:11.62, url:"https://www.google.com/search?q=Kys%C3%B8ko+G%C3%A5rd+N%C3%A6stved"},
+  {n:"Klippingegård", c:"veg", town:"Klippinge, 4672 (Stevns, Zealand)", d:"Seasonal local vegetables & farm shop", lat:55.32, lng:12.402, url:"https://www.klippingegaard.dk/"},
+  {n:"Søtofte Gårdmejeri", c:"dairy", town:"Søtoftevej 74, Ringsted (Mid-Zealand)", d:"Organic farm dairy — cheese, yoghurt & raw milk", lat:55.552, lng:11.905, url:"https://www.xn--stoftegrdmejeri-nlb03a.dk/"},
+  {n:"Funga Farm", c:"mushroom", town:"Refshaleøen, Copenhagen", d:"Urban craft mushrooms grown spore-to-harvest", lat:55.693, lng:12.612, url:"https://www.fungafarm.com/"},
+  {n:"Fiskerikajen Engros ApS", c:"fish", town:"H.J. Holst Vej 12, 2610 Rødovre", d:"Fish & seafood wholesaler", lat:55.674, lng:12.453, url:"https://www.fiskerikajen.dk/"},
+  {n:"JATAK — our kitchen", c:"home", town:"Rantzausgade 39, 2200 Copenhagen", d:"Our restaurant & home base", lat:55.687, lng:12.543, url:"https://www.jatakcph.com/", home:true},
+  {n:"Troldgaarden", c:"pork", town:"Hovedgård (East Jutland)", d:"Organic striped Danish landrace pigs, lamb & cattle", lat:55.93, lng:9.95, url:"https://troldgaarden.dk/"},
+  {n:"Svanholm Gods", c:"estate", town:"Svanholm Allé 2, 4050 Skibby", d:"Organic estate & eco-community — mixed produce", lat:55.735, lng:11.93, url:"https://svanholm.dk/"},
+  {n:"Søndergård", c:"meat", town:"Denmark (location approximate)", d:"Farm supplier", lat:55.78, lng:12.05, url:"https://www.google.com/search?q=S%C3%B8nderg%C3%A5rd+g%C3%A5rd+leverand%C3%B8r", approx:true},
+  {n:"Birkemose Gaard", c:"veg", town:"Oddenvej 165, 4583 Sjællands Odde", d:"Biodynamic farm shop — veg, fruit, meat & wine", lat:55.96, lng:11.42, url:"https://birkemosegaard.dk/"},
+  {n:"Knabegaarden", c:"veg", town:"Odensevej 210, 5600 Faaborg (Funen)", d:"Asparagus, new potatoes & berries", lat:55.13, lng:10.27, url:"https://www.knabegaarden.dk/asparges/"},
+  {n:"Brinkholm", c:"veg", town:"Karise (Stevns, Zealand)", d:"Co-op organic & regenerative vegetables", lat:55.295, lng:12.15, url:"https://www.andelsgaarde.dk/our-farms/"},
+  {n:"Dalsgaard & Barsøe", c:"poultry", town:"Haderslev (South Jutland)", d:"Organic free-range chicken", lat:55.25, lng:9.49, url:"https://www.google.com/search?q=Dalsgaard+og+Bars%C3%B8e+%C3%B8kologisk+kylling"},
+  {n:"Kiselgården A/S", c:"veg", town:"Jonstrupvej 18, 4350 Ugerløse", d:"One of Denmark's oldest biodynamic veg farms", lat:55.59, lng:11.66, url:"https://www.kiselgaarden.dk/"},
+  {n:"Skovsted Ålefarm (eel)", c:"fish", town:"Skovsted, near Thisted (North Jutland)", d:"Denmark's only edible-eel farm & smokehouse", lat:56.98, lng:8.62, url:"https://skovsted-aalefarm.dk/"},
+  {n:"Nordvild", c:"game", town:"Denmark (location approximate)", d:"Lamb & wild game", lat:56.4, lng:9.4, url:"https://www.google.com/search?q=Nordvild+vildt+lam", approx:true},
+  {n:"Naranjas del Mediterráneo", c:"citrus", town:"Borriana, Castellón (Valencia, Spain)", d:"Family-grown Valencia oranges & citrus", lat:39.889, lng:-0.092, url:"http://www.naranjasdelmediterraneo.com/"}
+];
+
+/* ---- Build map ---- */
+const map = L.map('map',{scrollWheelZoom:true}).setView([55.9,11.0],7);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+  attribution:'&copy; OpenStreetMap &copy; CARTO', maxZoom:19
+}).addTo(map);
+
+function pinIcon(s){
+  if(s.home){
+    return L.divIcon({className:'',html:
+      `<div class="pin home" style="--c:${HOME.color}"><div class="body"></div>`+
+      `<div class="gl"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${HOME.svg}</svg></div></div>`,
+      iconSize:[46,46], iconAnchor:[23,46], popupAnchor:[0,-42]});
+  }
+  const c = CAT[s.c];
+  return L.divIcon({className:'',html:
+    `<div class="pin" style="--c:${c.color}"><div class="body"></div>`+
+    `<div class="gl"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${c.svg}</svg></div></div>`,
+    iconSize:[34,34], iconAnchor:[17,34], popupAnchor:[0,-32]});
+}
+
+const markers = {};
+SUP.forEach((s,i)=>{
+  const cat = CAT[s.c] || HOME;
+  const m = L.marker([s.lat,s.lng],{icon:pinIcon(s),title:s.n,zIndexOffset:s.home?1000:0}).addTo(map);
+  const ap = s.approx ? ' <span class="badge">approx</span>' : '';
+  m.bindPopup(
+    `<div class="pop"><h3>${s.n}${ap}</h3>`+
+    `<div class="p"><b>${cat.label}</b> · ${s.town}<br>${s.d}</div>`+
+    `<a class="btn" href="${s.url}" target="_blank" rel="noopener">Visit website ↗</a></div>`
+  );
+  m.bindTooltip(`${s.n} — ${cat.label}`,{direction:'top',offset:[0,-30]});
+  m.on('click',()=> setActive(i));
+  markers[i]=m;
+});
+/* Fit view to all suppliers (Denmark + Spain) */
+map.fitBounds(SUP.map(s=>[s.lat,s.lng]),{padding:[45,45]});
+
+/* ---- Sidebar list ---- */
+const listEl = document.getElementById('list');
+function renderList(filter=''){
+  listEl.innerHTML='';
+  const f = filter.toLowerCase();
+  const order = SUP.map((s,i)=>i).sort((a,b)=>(SUP[b].home?1:0)-(SUP[a].home?1:0));
+  order.forEach(i=>{
+    const s = SUP[i];
+    const cat = CAT[s.c] || HOME;
+    if(f && !(`${s.n} ${cat.label} ${s.d} ${s.town}`.toLowerCase().includes(f))) return;
+    const row = document.createElement('div');
+    row.className='item'+(s.home?' home':''); row.dataset.i=i;
+    row.innerHTML =
+      `<div class="ic" style="background:${cat.color}"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${cat.svg}</svg></div>`+
+      `<div class="tx"><div class="nm">${s.n}${s.approx?' <span class="badge">approx</span>':''}</div>`+
+      `<div class="mt">${cat.label} · ${s.town}</div></div>`;
+    row.onclick=()=>{ map.flyTo([s.lat,s.lng],10,{duration:.6}); markers[i].openPopup(); setActive(i); };
+    listEl.appendChild(row);
+  });
+}
+function setActive(i){
+  document.querySelectorAll('.item').forEach(el=>el.classList.toggle('active', el.dataset.i==i));
+  const el = document.querySelector(`.item[data-i="${i}"]`);
+  if(el) el.scrollIntoView({block:'nearest'});
+}
+document.getElementById('q').addEventListener('input',e=>renderList(e.target.value));
+renderList();
+
+/* ---- Legend ---- */
+const legend = L.control({position:'bottomright'});
+legend.onAdd = function(){
+  const d = L.DomUtil.create('div','legend');
+  let h = `<div class="row" style="margin-bottom:7px"><span class="sw" style="background:${HOME.color};box-shadow:0 0 0 1.5px #f3c969"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${HOME.svg}</svg></span><b style="margin:0;text-transform:none;letter-spacing:0;color:var(--ink)">JATAK — our kitchen</b></div><b>Suppliers</b>`;
+  Object.values(CAT).forEach(c=>{
+    h += `<div class="row"><span class="sw" style="background:${c.color}"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${c.svg}</svg></span>${c.label}</div>`;
+  });
+  d.innerHTML = h;
+  L.DomEvent.disableScrollPropagation(d);
+  return d;
+};
+legend.addTo(map);
+</script>
+</body>
+</html>
